@@ -1,0 +1,222 @@
+#If VBA7 Then
+Private Declare PtrSafe Function GetKeyboardLayout Lib "user32" (ByVal dwLayout As Long) As Long
+Private Declare PtrSafe Function ActivateKeyboardLayout Lib "user32" _
+                                (ByVal HKL As Long, _
+                                 ByVal flags As Long) As Long
+#Else
+Private Declare PtrSafe Function GetKeyboardLayout Lib "user32" (ByVal dwLayout As Long) As Long
+Private Declare PtrSafe Function ActivateKeyboardLayout Lib "user32" _
+                                (ByVal HKL As Long, _
+                                 ByVal flags As Long) As Long
+#End If
+
+Private Const kb_lay_ru As Long = 68748313
+Private Const kb_lay_en As Long = 67699721
+
+Sub test()
+    
+    'Îïðåäåëåíèå ïåðåìåííûõ
+    Dim MacroBook As Workbook, OtchBook As Workbook, NorBook As Workbook, DopBook As Workbook
+    Dim WS As Worksheet
+    Dim Flag1 As Boolean
+    Dim myPath As String
+    Dim DanStr As Long, ZayCol As Long, MVZCol As Long, MatCol As Long, LastRow As Long, LastCol As Long, a As Long, b As Long
+    Dim arrTable() As Variant, n As Variant
+    Dim SapGuiAuto As Object, App As Object, Connection As Object, session As Object, WScript As Object
+    Dim FSO As Object, UchDict As Object, MVZDict As Object
+    
+    Dim L As Long
+    
+    L = GetKeyboardLayout(0) 'ii?îïðåäåëÿåì àêòèâíóþ ðàñêëàäêó
+    Call ActivateKeyboardLayout(kb_lay_en, 0) 'ìåíÿåì íà àíãëèéñêóþ
+    
+    AppActivate "Òåêñò äîêóìåíòà ßçûê RU"
+    Application.Wait (Now + TimeValue("0:00:01"))
+    SendKeys "^v"
+    Application.Wait (Now + TimeValue("0:00:01"))
+    
+    Call ActivateKeyboardLayout(L, 0) 'âîçâðàùàåì èñõîäíóþ ðàñêëàäêó
+    
+    'Îòêëþ÷àåì îáíîâëåíèå ýêðàíà
+    Application.ScreenUpdating = False
+    Set MacroBook = ThisWorkbook
+    myPath = MacroBook.Path
+    
+    'Ñîçäàíèå îáúåêòîâ è ñëîâàðåé
+    Set FSO = CreateObject("Scripting.FileSystemObject")
+    Set UchDict = CreateObject("Scripting.Dictionary")
+    
+    'Ñîáèðàåì ñëîâàðü ñ ó÷àñòêàìè äëÿ SAP
+    a = 2
+    Do While MacroBook.Sheets(2).Cells(a, 4).Value <> ""
+        UchDict(MacroBook.Sheets(2).Cells(a, 4).Value) = "Yes"
+        a = a + 1
+    Loop
+    
+    'Ïîäêëþ÷åíèå ê SAP
+    If App Is Nothing Then
+       Set SapGuiAuto = GetObject("SAPGUI")
+       Set App = SapGuiAuto.GetScriptingEngine
+    End If
+    If Connection Is Nothing Then
+       Set Connection = App.Children(0)
+    End If
+    If session Is Nothing Then
+       Set session = Connection.Children(0)
+    End If
+    If Not WScript Is Nothing Then
+       WScript.ConnectObject session, "on"
+       WScript.ConnectObject App, "on"
+    End If
+    
+    'Åñëè ôàéë ñ òàêèì íàçâàíèåì óæå ñóùåñòâóåò, óäàëÿåì
+    If FSO.FileExists(myPath & "\Âûãðóçêà SAP " & Date & ".XLSX") = True Then
+        Kill myPath & "\Âûãðóçêà SAP " & Date & ".XLSX"
+    End If
+    
+    With session
+        .findById("wnd[0]/tbar[0]/okcd").Text = "/NME5A"
+        .findById("wnd[0]").sendVKey 0
+        .findById("wnd[0]/usr/ctxtS_WERKS-LOW").Text = "2000" 'çàâîä
+        .findById("wnd[1]/tbar[0]/btn[8]").press
+        .findById("wnd[0]/tbar[1]/btn[8]").press
+        
+        'Âñòàâêà êëþ÷åé ñëîâàðÿ
+        n = UchDict.keys
+        For b = 0 To UBound(n)
+            .findById("wnd[1]/usr/tabsTAB_STRIP/tabpSIVA/ssubSCREEN_HEADER:SAPLALDB:3010/tblSAPLALDBSINGLE/ctxtRSCSEL_255-SLOW_I[1," & a & "]").Text = n(b)
+        Next b
+        
+        'Ýêñïîðò â Excel
+        .findById("wnd[0]/mbar/menu[0]/menu[3]/menu[1]").Select
+        .findById("wnd[1]/usr/ctxtDY_PATH").Text = myPath
+        .findById("wnd[1]/usr/ctxtDY_FILENAME").Text = "Âûãðóçêà SAP " & Date & ".XLSX"
+        .findById("wnd[1]/tbar[0]/btn[0]").press
+        
+        'Îòêðûâàåì êíèãó
+        Set OtchBook = Workbooks.Open(myPath & "\Âûãðóçêà SAP.XLSX", UpdateLinks:=False)
+        
+        'Ïåðåáîð ëèñòîâ
+        For Each WS In OtchBook.Worksheets
+            If WS.Visible = True Then
+                
+                WS.Activate
+                WS.AutoFilterMode = False
+                
+                If Not Range(Cells(1, 1), Cells(100, 100)).Find(What:="Êðàòêèé òåêñò", After:=Cells(1, 1), LookIn:=xlValues, LookAt:=xlWhole) Is Nothing Then
+                    Flag1 = True
+                    
+                    If Range(Cells(1, 1), Cells(100, 100)).Find(What:="Çàÿâêà", After:=Cells(1, 1), LookIn:=xlValues, LookAt:=xlWhole) Is Nothing Then
+                        MsgBox ("Â âûãðóçêå " & ActiveWorkbook.Name & " íà ëèñòå " & WS.Name & " íåò êîëîíêè Çàÿâêà"), vbExclamation
+                        Exit Sub
+                    Else
+                        DanStr = Range(Cells(1, 1), Cells(100, 100)).Find(What:="Çàÿâêà", After:=Cells(1, 1), LookIn:=xlValues, LookAt:=xlWhole).Row
+                        ZayCol = Range(Cells(1, 1), Cells(100, 100)).Find(What:="Çàÿâêà", After:=Cells(1, 1), LookIn:=xlValues, LookAt:=xlWhole).Column
+                    End If
+                    
+                    If Range(Cells(1, 1), Cells(100, 100)).Find(What:="ÌÂÇ", After:=Cells(1, 1), LookIn:=xlValues, LookAt:=xlWhole) Is Nothing Then
+                        MsgBox ("Â âûãðóçêå " & ActiveWorkbook.Name & " íà ëèñòå " & WS.Name & " íåò êîëîíêè ÌÂÇ"), vbExclamation
+                        Exit Sub
+                    Else
+                        MVZCol = Range(Cells(1, 1), Cells(100, 100)).Find(What:="ÌÂÇ", After:=Cells(1, 1), LookIn:=xlValues, LookAt:=xlWhole).Column
+                    End If
+                    
+                    'Íà ëèñòå ïîñëåäíÿÿ çàïîëíåííàÿ ñòðîêà îáúÿâëÿåòñÿ ïåðåìåííîé LastRow, ïîñëåäíÿÿ êîëîíêà - LastCol
+                    With ActiveSheet.UsedRange:
+                    LastRow = ActiveSheet.UsedRange.Row + ActiveSheet.UsedRange.Rows.Count - 1
+                    LastCol = ActiveSheet.UsedRange.Column + ActiveSheet.UsedRange.Columns.Count - 1
+                    End With
+                    
+                    ReDim arrTable(1 To LastRow - DanStr, 1 To LastCol)
+                    arrTable = Range(Cells(DanStr + 1, 1), Cells(LastRow, LastCol)).Value
+                    
+                    'Îáðàáîòêà ìàññèâà
+                    For a = 1 To LastRow - DanStr
+                        If arrTable(a, ZayCol) <> "" Then
+                            'Ñáîð ñëîâàðÿ
+                            MVZDict(CStr(arrTable(a, ZayCol))) = arrTable(a, MVZCol)
+                        End If
+                    Next a
+                    
+                    Exit For
+                End If
+            End If
+        Next
+        
+        If Flag1 = False Then
+            MsgBox ("Ôàéë íå ðàñïîçíàí"), vbExclamation
+            Exit Sub
+        End If
+        OtchBook.Close False
+    End With
+    
+    'Îòêðûòèå ôàéëà ÷åðåç äèàëîãîâîå îêíî
+    With Application.FileDialog(msoFileDialogFilePicker)
+        .AllowMultiSelect = False
+        .Title = "Âûáåðèòå ôàéë ñ íîðìàìè"
+        .Filters.Clear
+        .Filters.Add "Excel files", "*.xl*"
+        If .Show = 0 Then Exit Sub
+    End With
+    Set NorBook = Workbooks.Open(Application.FileDialog(msoFileDialogFilePicker).SelectedItems(1), UpdateLinks:=0)
+    NorBook.Close False
+    
+    'Ñîçäàíèå íîâîé êíèãè
+    Set DopBook = Workbooks.Add
+    Sheets(1).Name = "Èñõîäíèê"
+    Sheets.Add After:=Sheets(1)
+    Sheets(2).Name = "Îøèáêè"
+    Sheets.Add After:=Sheets(2)
+    Sheets(3).Name = "Ñâîä"
+    
+    If KolStr > 0 Then
+        'Äîáàâëåíèå øàïêè
+        Cells(1, LastCol + 1).Resize(, 10).Value = Array("Ïîñë. ñîãë. ÑíÎ", "Ïîäð. ïîñë. ñîãë. ÑíÎ", "ÖÓÎ ïîñë. ñîãë. ÑíÎ", "Îòäåë ïîñë. ñîãë. ÑíÎ", "Îòäåë èíèöèàòîðà", _
+        "ÖÓÎ âûïîëíèâøåãî", "Îòäåë âûïîëíèâøåãî", "ÖÓÎ", "ÐÔ", "ÌÐÔ")
+        Columns(1).NumberFormat = "@"
+        Range(Cells(2, 1), Cells(KolStr + 1, LastCol + 10)) = arrResult
+        Range(Cells(1, 1), Cells(KolStr + 1, LastCol + 10)).Borders.LineStyle = xlContinuous
+        Range(Cells(1, 1), Cells(KolStr + 1, 1)).EntireRow.RowHeight = 15
+        Rows(1).AutoFilter
+        Columns(LastCol + 10).AutoFit
+        
+        'Ïîñòðîåíèå ñâîäíîé òàáëèöû
+        DopBook.PivotCaches.Create(SourceType:=xlDatabase, SourceData:=Sheets(2).Name & "!R1C1:R" & KolStr + 1 & "C" & LastCol + 10, _
+        Version:=xlPivotTableVersion15).CreatePivotTable TableDestination:=DopBook.Sheets(3).Range("A3"), TableName:="Ñâîä_6_10", DefaultVersion:=xlPivotTableVersion15
+        
+        Sheets(3).Activate
+        With ActiveSheet.PivotTables("Ñâîä_6_10")
+            .PivotFields("ÖÓÎ").Orientation = xlRowField
+            .PivotFields("ÌÐÔ").Orientation = xlRowField
+            .PivotFields("Ôèëèàë").Orientation = xlRowField
+            .PivotFields("ÐÔ").Orientation = xlRowField
+            .PivotFields("Îòäåë èíèöèàòîðà").Orientation = xlRowField
+            .PivotFields("Èíèöèàòîð ÑíÎ").Orientation = xlRowField
+            .AddDataField ActiveSheet.PivotTables("Ñâîä_6_10").PivotFields("Íîìåð ÑíÎ"), "Îøèáêè", xlCount
+            .PivotFields("ÖÓÎ").Subtotals(1) = True
+            .PivotFields("ÖÓÎ").Subtotals(1) = False
+            .PivotFields("ÌÐÔ").Subtotals(1) = True
+            .PivotFields("ÌÐÔ").Subtotals(1) = False
+            .PivotFields("Ôèëèàë").Subtotals(1) = True
+            .PivotFields("Ôèëèàë").Subtotals(1) = False
+            .PivotFields("ÐÔ").Subtotals(1) = True
+            .PivotFields("ÐÔ").Subtotals(1) = False
+            .PivotFields("Îòäåë èíèöèàòîðà").Subtotals(1) = True
+            .PivotFields("Îòäåë èíèöèàòîðà").Subtotals(1) = False
+            .PivotFields("Èíèöèàòîð ÑíÎ").Subtotals(1) = True
+            .PivotFields("Èíèöèàòîð ÑíÎ").Subtotals(1) = False
+            .RowAxisLayout xlTabularRow
+            .RepeatAllLabels xlRepeatLabels
+        End With
+    End If
+    
+    'Çàêðûòèå êíèã, ñîõðàíåíèå ðåçóëüòàòà
+    Application.DisplayAlerts = False
+    DopBook.SaveAs myPath & "\" & "Êîëè÷åñòâî ìàòåðèàëîâ ÖÀÏÒ íà " & Date & " " & Replace(Time, ":", "_") & ".xlsb", xlExcel12
+    Application.DisplayAlerts = True
+    
+    DopBook.Close False
+    Application.ScreenUpdating = True
+    MsgBox "Îáðàáîòêà çàâåðøåíà", vbInformation
+    
+End Sub
